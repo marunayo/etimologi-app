@@ -1,65 +1,139 @@
-import Image from "next/image";
+'use client';
 
-export default function Home() {
+import { useState } from 'react';
+import SearchBar from '@/components/SearchBar';
+import ResultCard from '@/components/ResultCard';
+import GraphViewer from '@/components/GraphViewer';
+
+interface QueryResult {
+  question: string;
+  answer: string;
+  sourceLanguages: string[];
+  confidence: 'high' | 'medium' | 'low';
+  cypherUsed: string;
+}
+
+interface GraphData {
+  nodes: {
+    id: string;
+    lemma: string;
+    language: string;
+    languageName: string;
+    pos?: string;
+    meaning?: string;
+  }[];
+  edges: {
+    source: string;
+    target: string;
+    mechanism?: string;
+    period?: string;
+    sourceRef?: string;
+  }[];
+}
+
+export default function HomePage() {
+  const [isLoading, setIsLoading] = useState(false);
+  const [result, setResult] = useState<QueryResult | null>(null);
+  const [graphData, setGraphData] = useState<GraphData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Ekstrak nama kata dari pertanyaan untuk fetch graph
+  const extractLemma = (question: string): string | null => {
+    const patterns = [
+      /kata\s+["']?(\w+)["']?/i,
+      /asal[- ]usul\s+["']?(\w+)["']?/i,
+      /etimologi\s+["']?(\w+)["']?/i,
+      /["'](\w+)["']/,
+    ];
+    for (const pattern of patterns) {
+      const match = question.match(pattern);
+      if (match) return match[1].toLowerCase();
+    }
+    return null;
+  };
+
+  const handleSearch = async (question: string) => {
+    setIsLoading(true);
+    setError(null);
+    setResult(null);
+    setGraphData(null);
+
+    try {
+      // Fetch query result dan graph data secara paralel
+      const lemma = extractLemma(question);
+      const [queryRes, graphRes] = await Promise.all([
+        fetch('/api/query', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question }),
+        }),
+        lemma
+          ? fetch(`/api/graph?lemma=${encodeURIComponent(lemma)}`)
+          : Promise.resolve(null),
+      ]);
+
+      const queryData = await queryRes.json();
+      if (!queryRes.ok) throw new Error(queryData.error ?? 'Gagal memproses pertanyaan');
+
+      setResult({
+        question: queryData.question,
+        answer: queryData.answer,
+        sourceLanguages: queryData.sourceLanguages,
+        confidence: queryData.confidence,
+        cypherUsed: queryData.cypherUsed,
+      });
+
+      if (graphRes) {
+        const gData = await graphRes.json();
+        if (gData.nodes?.length > 0) setGraphData(gData);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Terjadi kesalahan');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <main className="min-h-screen bg-linear-to-br from-slate-50 to-blue-50">
+      <div className="max-w-3xl mx-auto px-4 py-12 space-y-8">
+
+        {/* Header */}
+        <div className="text-center space-y-2">
+          <h1 className="text-3xl font-bold text-gray-900">
+            🔍 Etimologi Bahasa Indonesia
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="text-gray-500">
+            Telusuri asal-usul kata menggunakan Graph Database & AI
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+
+        {/* Search */}
+        <SearchBar onSearch={handleSearch} isLoading={isLoading} />
+
+        {/* Error */}
+        {error && (
+          <div className="p-4 bg-red-50 border border-red-100 rounded-xl text-red-600 text-sm">
+            ⚠️ {error}
+          </div>
+        )}
+
+        {/* Loading skeleton */}
+        {isLoading && (
+          <div className="space-y-4 animate-pulse">
+            <div className="h-32 bg-white rounded-2xl border border-gray-100" />
+            <div className="h-72 bg-white rounded-2xl border border-gray-100" />
+          </div>
+        )}
+
+        {/* Results */}
+        {!isLoading && result && (
+          <div className="space-y-4">
+            <ResultCard {...result} />
+            {graphData && <GraphViewer nodes={graphData.nodes} edges={graphData.edges} />}
+          </div>
+        )}
+      </div>
+    </main>
   );
 }
