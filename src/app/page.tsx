@@ -8,7 +8,7 @@ import GraphViewer from '@/components/GraphViewer';
 interface QueryResult {
   question: string;
   answer: string;
-  references: string[];        // ← tambahkan ini
+  references: string[];
   sourceLanguages: string[];
   confidence: 'high' | 'medium' | 'low';
   cypherUsed: string;
@@ -38,7 +38,6 @@ export default function HomePage() {
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Ekstrak nama kata dari pertanyaan untuk fetch graph
   const extractLemma = (question: string): string | null => {
     const patterns = [
       /kata\s+["']?(\w+)["']?/i,
@@ -60,7 +59,6 @@ export default function HomePage() {
     setGraphData(null);
 
     try {
-      // Fetch query result dan graph data secara paralel
       const lemma = extractLemma(question);
       const [queryRes, graphRes] = await Promise.all([
         fetch('/api/query', {
@@ -79,7 +77,7 @@ export default function HomePage() {
       setResult({
         question: queryData.question,
         answer: queryData.answer,
-        references: queryData.references ?? [],   // ← tambahkan ini
+        references: queryData.references ?? [],
         sourceLanguages: queryData.sourceLanguages,
         confidence: queryData.confidence,
         cypherUsed: queryData.cypherUsed,
@@ -106,7 +104,7 @@ export default function HomePage() {
             🔍 Etimologi Bahasa Indonesia
           </h1>
           <p className="text-gray-500">
-            Telusuri asal-usul kata menggunakan Graph Database & AI
+            Telusuri asal-usul kata menggunakan Graph Database &amp; AI
           </p>
         </div>
 
@@ -123,8 +121,8 @@ export default function HomePage() {
         {/* Loading skeleton */}
         {isLoading && (
           <div className="space-y-4 animate-pulse">
-            <div className="h-32 bg-white rounded-2xl border border-gray-100" />
-            <div className="h-72 bg-white rounded-2xl border border-gray-100" />
+            <div className="h-48 bg-white rounded-2xl border border-gray-100" />
+            <div className="h-96 bg-white rounded-2xl border border-gray-100" />
           </div>
         )}
 
@@ -132,9 +130,12 @@ export default function HomePage() {
         {!isLoading && result && (
           <div className="space-y-4">
             <ResultCard {...result} />
-            {graphData && <GraphViewer nodes={graphData.nodes} edges={graphData.edges} />}
+            {graphData && (
+              <GraphViewer nodes={graphData.nodes} edges={graphData.edges} />
+            )}
           </div>
         )}
+
       </div>
     </main>
   );
