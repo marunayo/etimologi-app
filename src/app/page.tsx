@@ -8,6 +8,7 @@ import GraphViewer from '@/components/GraphViewer';
 interface QueryResult {
   question: string;
   answer: string;
+  references: string[];        // ← tambahkan ini
   sourceLanguages: string[];
   confidence: 'high' | 'medium' | 'low';
   cypherUsed: string;
@@ -78,6 +79,7 @@ export default function HomePage() {
       setResult({
         question: queryData.question,
         answer: queryData.answer,
+        references: queryData.references ?? [],   // ← tambahkan ini
         sourceLanguages: queryData.sourceLanguages,
         confidence: queryData.confidence,
         cypherUsed: queryData.cypherUsed,
