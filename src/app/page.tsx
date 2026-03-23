@@ -61,7 +61,7 @@ export default function HomePage() {
     try {
       const lemma = extractLemma(question);
       const [queryRes, graphRes] = await Promise.all([
-        fetch('/api/query', {
+        fetch('/api/graphrag', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ question }),
