@@ -3,34 +3,47 @@ import { generateObject } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { runQuery } from '@/lib/neo4j';
-import { pipeline } from '@xenova/transformers';
 
 const openrouter = createOpenAI({
   baseURL: 'https://openrouter.ai/api/v1',
   apiKey: process.env.OPENROUTER_API_KEY!,
 });
 
-// Cache extractor agar tidak reload setiap request
-let extractor: unknown = null;
-async function getExtractor() {
-  if (!extractor) {
-    extractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+async function embedText(text: string): Promise<number[]> {
+  const res = await fetch(
+    'https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2/pipeline/feature-extraction',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.HF_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ inputs: text, options: { wait_for_model: true } }),
+    }
+  );
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`HuggingFace API error: ${err}`);
   }
-  return extractor as (text: string, opts: object) => Promise<{ data: Float32Array }>;
+
+  const data = await res.json();
+  return Array.isArray(data[0]) ? data[0] : data;
 }
 
 export async function POST(req: NextRequest) {
   const { question } = await req.json();
 
   if (!question || typeof question !== 'string' || question.trim() === '') {
-    return NextResponse.json({ error: 'Pertanyaan tidak boleh kosong' }, { status: 400 });
+    return NextResponse.json(
+      { error: 'Pertanyaan tidak boleh kosong' },
+      { status: 400 }
+    );
   }
 
   try {
-    // ── Step 1: Embed query ───────────────────────────────────
-    const embed = await getExtractor();
-    const output = await embed(question.trim(), { pooling: 'mean', normalize: true });
-    const queryVector = Array.from(output.data) as number[];
+    // ── Step 1: Embed query via HuggingFace API ───────────────
+    const queryVector = await embedText(question.trim());
 
     // ── Step 2: Vector search → candidate nodes ───────────────
     const vectorResults = await runQuery(
@@ -49,7 +62,7 @@ export async function POST(req: NextRequest) {
       language: r.get('language') as string,
       languageName: r.get('languageName') as string,
       meaning: (r.get('meaning') as string) ?? null,
-      score: (r.get('score') as number),
+      score: r.get('score') as number,
     }));
 
     if (candidates.length === 0) {
@@ -60,16 +73,17 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Step 3: Graph expansion → subgraph ───────────────────
-    // Ambil top-3 candidate yang bahasa Indonesia
+    // Ambil top candidates bahasa Indonesia dengan score >= 0.85
     const topLemmas = candidates
-        .filter((c) => c.language === 'id' && c.score >= 0.85)
-        .slice(0, 3)
-        .map((c) => c.lemma);
+      .filter((c) => c.language === 'id' && c.score >= 0.85)
+      .slice(0, 3)
+      .map((c) => c.lemma);
 
-    // Fallback: jika tidak ada candidate bahasa Indonesia, ambil top-3 semua
-    const lemmasToExpand = topLemmas.length > 0
-      ? topLemmas
-      : candidates.slice(0, 3).map((c) => c.lemma);
+    // Fallback: jika tidak ada yang lolos threshold, ambil top-3 semua bahasa
+    const lemmasToExpand =
+      topLemmas.length > 0
+        ? topLemmas
+        : candidates.slice(0, 3).map((c) => c.lemma);
 
     const subgraphResults = await runQuery(
       `UNWIND $lemmas AS lemma
@@ -129,14 +143,19 @@ Jawab pertanyaan berikut berdasarkan subgraph dari knowledge graph etimologi.
 Pertanyaan: "${question.trim()}"
 
 === HASIL VECTOR SEARCH (top candidates by semantic similarity) ===
-${candidates.map((c) =>
-  `- "${c.lemma}" (${c.languageName}) — similarity score: ${c.score.toFixed(4)}`
-).join('\n')}
+${candidates
+  .map(
+    (c) =>
+      `- "${c.lemma}" (${c.languageName}) — similarity score: ${c.score.toFixed(4)}`
+  )
+  .join('\n')}
 
 === SUBGRAPH ETIMOLOGI (hasil graph traversal dari candidates) ===
-${subgraphContext.length > 0
-  ? JSON.stringify(subgraphContext, null, 2)
-  : 'Tidak ada subgraph ditemukan untuk candidates ini.'}
+${
+  subgraphContext.length > 0
+    ? JSON.stringify(subgraphContext, null, 2)
+    : 'Tidak ada subgraph ditemukan untuk candidates ini.'
+}
 
 Aturan penulisan:
 - Tulis narasi dari sudut pandang Bahasa Indonesia, mundur ke asal-usul
@@ -163,7 +182,6 @@ Aturan penulisan:
       sourceLanguages: answer.sourceLanguages,
       confidence: answer.confidence,
     });
-
   } catch (err) {
     console.error('❌ /api/graphrag error:', err);
     const message = err instanceof Error ? err.message : 'Unknown error';
